@@ -24,7 +24,6 @@ ydl_opts = {
     "quiet": True,
 }
 
-
 CHUNK_LENGTH_MINS = 15
 AUDIO_TRANSCRIBE_MODEL = "whisper-1"
 MODEL = "gpt-4o"
@@ -185,7 +184,8 @@ def fetch_youtube_captions(
     Fetch YouTube captions using youtube-transcript-api >=1.0.0
     """
     ytt_api = YouTubeTranscriptApi()
-    return ytt_api.fetch(youtube_id)
+    feteched_transcript =  ytt_api.fetch(youtube_id).to_raw_data()
+    return feteched_transcript
 
  
 
@@ -346,5 +346,11 @@ with tab1:
     url = st.text_input("Input your link here:")
     if url:
         display_youtube_player(url)
-        captions = fetch_youtube_captions(st.session_state["youtube_id"], language="eng")
-        st.write(captions)
+        st.session_state["transcript"] = fetch_youtube_captions(st.session_state["youtube_id"], language="eng")
+        if st.button("Generate"):
+            placeholder = st.empty()
+            full_text = ""
+
+            for token in summarize_text(st.session_state["transcript"]):
+                full_text += token
+                placeholder.markdown(full_text)

@@ -73,3 +73,22 @@ def download_youtube_audio(url: str):
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         ydl.download([url])
 
+import yt_dlp
+
+def fetch_youtube_metadata(url: str) -> dict:
+    ydl_opts = {
+        "quiet": True,
+        "skip_download": True,
+    }
+
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        info = ydl.extract_info(url, download=False)
+
+    return {
+        "title": info.get("title"),
+        "description": info.get("description"),
+        "channel": info.get("channel"),
+        "upload_date": info.get("upload_date"),
+        "duration": info.get("duration"),
+        "tags": info.get("tags"),
+    }

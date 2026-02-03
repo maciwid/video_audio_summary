@@ -19,13 +19,27 @@ env = dotenv_values(".env")
 def get_openai_client():
     return OpenAI(api_key=st.session_state["openai_api_key"])
 
-def render_player(video_id, autoplay):
+def render_youtube_player(video_id, autoplay):
     start = st.session_state.get("seek_to", 0)
 
     if start is not None:
         st.video(f"https://www.youtube.com/watch?v={video_id}", start_time=start, autoplay=autoplay)
     else:
         st.video(f"https://www.youtube.com/watch?v={video_id}")
+
+def render_local_player(file_path, is_video=True):
+    start = st.session_state.get("seek_to", 0)
+
+    if is_video:
+        if start is not None:
+            st.video(file_path, start_time=start)
+        else:
+            st.video(file_path)
+    else:
+        if start is not None:
+            st.audio(file_path, start_time=start)
+        else:
+            st.audio(file_path)
 
 def set_seek(seconds: int):
     st.session_state.seek_to = seconds
@@ -140,6 +154,9 @@ if "is_video" not in st.session_state:
 if "audio_file_path" not in st.session_state:
     st.session_state["audio_file_path"] = None
 
+if "video_file_path" not in st.session_state:
+    st.session_state["video_file_path"] = None
+
 if "transcript" not in st.session_state:
     st.session_state["transcript"] = None
 
@@ -158,6 +175,9 @@ if "context" not in st.session_state:
 if "full_summary" not in st.session_state:
     st.session_state["full_summary"] = None
 
+if "chapters" not in st.session_state:
+    st.session_state["chapters"] = None
+
 if "yt_full_summary" not in st.session_state:
     st.session_state["yt_full_summary"] = None
 
@@ -173,7 +193,64 @@ left_col, center_col, right_col = st.columns([1, 4, 1])
 
 with center_col:
     st.title("VIDEO/AUDIO SUMMARY")
-    upload_tab, youtube_tab = st.tabs(["Upload file", "Parse YouTube video"])
+    youtube_tab, upload_tab = st.tabs(["Parse YouTube video", "Upload file"])
+    ### Youtube link option
+    with youtube_tab:
+        url = st.text_input("Input your link here:")
+        youtube_id = youtube_utils.get_youtube_id(url)
+        if youtube_id:
+            if not youtube_utils.video_exists_http(youtube_id):
+                st.error("Video not found or private.")
+        # else:
+        #     st.warning("Invalid YouTube URL.")
+        yt_video_col, yt_summary_col = st.columns(2, gap="small")
+
+        if youtube_id and youtube_id != st.session_state["youtube_id"]: #new url provided
+            st.session_state["youtube_id"]=youtube_id
+            st.session_state["generate_requested"] = False
+            with yt_video_col:
+                render_youtube_player(youtube_id, False)
+                st.button("Generate summary", on_click=request_generation)
+
+        else: 
+            if st.session_state["generate_requested"]:
+                with yt_summary_col:
+                    with st.spinner("In progress..."):
+                        st.session_state["yt_transcript"]= youtube_utils.fetch_youtube_captions(st.session_state["youtube_id"], language="eng")
+                        st.session_state["yt_full_summary"] = ""
+                        with st.container(height=700):
+                            placeholder = st.empty()
+                        for token in summarize_text(st.session_state["yt_transcript"], youtube_utils.fetch_youtube_metadata(url)):
+                            st.session_state["yt_full_summary"] += token
+                            placeholder.markdown(st.session_state["yt_full_summary"])
+                    with st.spinner("Generating summary..."):
+                        chapters = summary.extract_chapters(st.session_state["yt_full_summary"])
+                        # render_player(st.session_state["youtube_id"])
+                        st.session_state["generate_requested"] = False
+                with yt_video_col:
+                    render_youtube_player(youtube_id, True)
+                    if chapters:
+                        with st.container(height=340):
+                            render_chapter_buttons(chapters)
+            else:
+                with yt_video_col:
+                        if youtube_id:
+                            render_youtube_player(youtube_id, True)
+                            # youtube_utils.display_youtube_player(url)
+                            if st.session_state["yt_full_summary"]:
+                                chapters = summary.extract_chapters(st.session_state["yt_full_summary"])
+                                with st.container(height=340):
+                                    render_chapter_buttons(chapters)
+                with yt_summary_col:
+                    if st.session_state["yt_full_summary"]:
+                        video_id = st.session_state["youtube_id"]
+                        # render_player(video_id)
+                        with st.container(height=700):
+                            st.markdown(st.session_state["yt_full_summary"])
+                        # clean_md = summary.CHAPTER_RE.sub("", st.session_state["yt_full_summary"])
+                        # st.markdown(clean_md)
+
+
     ### File upload option
     with upload_tab: 
         uploaded_file = st.file_uploader("Send a file for transcription", type=["mp3", "mp4", "wav", "mov", "ogg"], key="video_file")
@@ -195,6 +272,8 @@ with center_col:
                     st.session_state["transcript"] = None
                     st.session_state["edtitable_text"] = None
                     st.session_state["audio_file_path"] = None
+                    st.session_state["video_file_path"] = None
+                    st.session_state["full_summary"] = None
                     
                     # if file is video
                     if st.session_state["is_video"]: 
@@ -203,17 +282,17 @@ with center_col:
                         with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as temp_video_file:
                             temp_video_file.write(file_bytes)
                             temp_video_path = temp_video_file.name
+                            st.session_state["video_file_path"] = temp_video_path
                         info_audio_placeholder = st.empty()
-                        info_audio_placeholder.info("Extracting audio, please wait...")
+                        # info_audio_placeholder.info("Extracting audio, please wait...")
                         # Convert video to audio
                         audio = AudioSegment.from_file(temp_video_path, format="mp4")
                         # Save audio to a temporary file
                         with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as temp_audio_file:
                             audio.export(temp_audio_file.name, format="mp3")
                             st.session_state["audio_file_path"] = temp_audio_file.name  
-                            info_audio_placeholder.success("Audio was extracted.")
-                            st.write("Extracted audio:")
-                            st.audio(st.session_state["audio_file_path"], format="audio/mp3")
+                            # info_audio_placeholder.success("Audio was extracted.")
+                            # st.audio(st.session_state["audio_file_path"], format="audio/mp3")
                     
                     else:  # if the file is audio
                         st.audio(file_bytes, format=f"audio/{file_extension}")
@@ -225,18 +304,17 @@ with center_col:
                 # Uploaded file didn't change
                 else:
                     if st.session_state["is_video"]:
-                        if st.session_state["transcript"]:
-                            st.video(st.session_state["file_bytes"], format="video/mp4", subtitles=st.session_state["transcript"]["srt"])
-                        else:
-                            st.video(st.session_state["file_bytes"], format="video/mp4")
-                        st.write("Audio:")
-                    st.audio(st.session_state["audio_file_path"], format="audio/mp3")
-                    
+                        file_path = st.session_state["video_file_path"]
+                    else:
+                        file_path = st.session_state["audio_file_path"]      
+                    render_local_player(file_path, st.session_state["is_video"])
+                    # st.video(st.session_state["file_bytes"], format="video/mp4")
+
                 info_transcribe_placeholder = st.empty()
                 if st.session_state["transcript"] is None: 
                     st.session_state["context"] = st.text_area("You can add additional context for the summary here")
                     if st.button("Generate summary", key = "uploaded_file_btn" ):
-                        info_transcribe_placeholder.info("Transcribing audio... (this may take a while depending on the length of the audio)")  
+                        info_transcribe_placeholder.info("Transcribing audio... (this may take a while depending on the length)")  
                         try:
                             st.session_state["transcript"] = audio_utils.create_transcription(open(st.session_state["audio_file_path"], "rb").read(), get_openai_client()) 
                         except AuthenticationError:
@@ -247,71 +325,26 @@ with center_col:
                             st.stop()
                         # st.session_state["transcript"] = transcript
                         st.rerun()
+
+                if st.session_state["full_summary"]:
+                    if st.session_state["chapters"]:
+                        with st.container(height=365):
+                            render_chapter_buttons(st.session_state["chapters"])
         with summary_col:
             if st.session_state["transcript"]:
-                info_transcribe_placeholder.info("Transcription completed. Generating summary...")  
-                # transcription_text = parse_transcript(st.session_state["transcript"]) 
-                # if st.button("Generate summary", key = "uploaded_file_btn" ):
-                st.session_state["full_summary"] = ""
-                placeholder = st.empty()
-                for token in summarize_text(st.session_state["transcript"], st.session_state["context"]):
-                    st.session_state["full_summary"] += token
-                    placeholder.markdown(st.session_state["full_summary"])
-                info_transcribe_placeholder.success("Transcription completed.")
-
-    ### Youtube link option
-    with youtube_tab:
-        url = st.text_input("Input your link here:")
-        youtube_id = youtube_utils.get_youtube_id(url)
-        if youtube_id:
-            if not youtube_utils.video_exists_http(youtube_id):
-                st.error("Video not found or private.")
-        # else:
-        #     st.warning("Invalid YouTube URL.")
-        yt_video_col, yt_summary_col = st.columns(2, gap="small")
-
-        if youtube_id and youtube_id != st.session_state["youtube_id"]: #new url provided
-            st.session_state["youtube_id"]=youtube_id
-            st.session_state["generate_requested"] = False
-            with yt_video_col:
-                render_player(youtube_id, False)
-                st.button("Generate summary", on_click=request_generation)
-
-        else: 
-            if st.session_state["generate_requested"]:
-                with yt_summary_col:
-                    with st.spinner("In progress..."):
-                        st.session_state["yt_transcript"]= youtube_utils.fetch_youtube_captions(st.session_state["youtube_id"], language="eng")
-                        st.session_state["yt_full_summary"] = ""
-                        with st.container(height=700):
-                            placeholder = st.empty()
-                        for token in summarize_text(st.session_state["yt_transcript"], youtube_utils.fetch_youtube_metadata(url)):
-                            st.session_state["yt_full_summary"] += token
-                            placeholder.markdown(st.session_state["yt_full_summary"])
-                    with st.spinner("Generating summary..."):
-                        chapters = summary.extract_chapters(st.session_state["yt_full_summary"])
-                        # render_player(st.session_state["youtube_id"])
-                        st.session_state["generate_requested"] = False
-                with yt_video_col:
-                    render_player(youtube_id, True)
-                    if chapters:
-                        with st.container(height=340):
-                            render_chapter_buttons(chapters)
-
-            else:
-                with yt_video_col:
-                        if youtube_id:
-                            render_player(youtube_id, True)
-                            # youtube_utils.display_youtube_player(url)
-                            if st.session_state["yt_full_summary"]:
-                                chapters = summary.extract_chapters(st.session_state["yt_full_summary"])
-                                with st.container(height=340):
-                                    render_chapter_buttons(chapters)
-                with yt_summary_col:
-                    if st.session_state["yt_full_summary"]:
-                        video_id = st.session_state["youtube_id"]
-                        # render_player(video_id)
-                        with st.container(height=700):
-                            st.markdown(st.session_state["yt_full_summary"])
-                        # clean_md = summary.CHAPTER_RE.sub("", st.session_state["yt_full_summary"])
-                        # st.markdown(clean_md)
+                if not st.session_state["full_summary"]:
+                    info_transcribe_placeholder.info("Transcription completed. Generating summary...")  
+                    # transcription_text = parse_transcript(st.session_state["transcript"]) 
+                    # if st.button("Generate summary", key = "uploaded_file_btn" ):
+                    st.session_state["full_summary"] = ""
+                    with st.container(height=700):
+                        placeholder = st.empty()
+                        for token in summarize_text(st.session_state["transcript"], st.session_state["context"]):
+                            st.session_state["full_summary"] += token
+                            placeholder.markdown(st.session_state["full_summary"])
+                    st.session_state["chapters"] = summary.extract_chapters(st.session_state["full_summary"])
+                    info_transcribe_placeholder.success("Transcription completed.")
+                    st.rerun()
+                else:
+                    with st.container(height=700):
+                        st.markdown(st.session_state["full_summary"])

@@ -8,6 +8,14 @@ from youtube_transcript_api._errors import (
     NoTranscriptFound,
     VideoUnavailable,
 )
+import requests
+
+def video_exists_http(video_id):
+    url = f"https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v={video_id}"
+    r = requests.get(url)
+    return r.status_code == 200
+
+
 
 ydl_opts = {
     "format": "bestaudio/best",
@@ -43,18 +51,19 @@ def get_youtube_id(url:str) -> str | None:
 
     return None
 
-def display_youtube_player(url: str):
+def display_youtube_player(url: str, start: int | None = None):
     youtube_id = get_youtube_id(url)
     st.session_state["youtube_id"] = youtube_id
-    st.components.v1.html(
-    f"""
-    <iframe width="560" height="315"
-    src="https://www.youtube.com/embed/{youtube_id}"
-    frameborder="0"
-    allowfullscreen></iframe>
-    """,
-    height=340,
-    )
+
+    if start is not None:
+        st.video(f"https://www.youtube.com/watch?v={youtube_id}&start={start}")
+    else:
+        st.video(f"https://www.youtube.com/watch?v={youtube_id}")
+
+
+def youtube_link_at(video_id: str, seconds: int) -> str:
+    return f"https://www.youtube.com/watch?v={video_id}&start={seconds}"
+
 
 def fetch_youtube_captions(
     youtube_id: str,

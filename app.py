@@ -8,6 +8,7 @@ from io import BytesIO
 
 import youtube_utils 
 import audio_utils 
+import summary
 
 
 MODEL = "gpt-4o"
@@ -18,18 +19,80 @@ env = dotenv_values(".env")
 def get_openai_client():
     return OpenAI(api_key=st.session_state["openai_api_key"])
 
+def render_player(video_id, autoplay):
+    start = st.session_state.get("seek_to", 0)
+
+    if start is not None:
+        st.video(f"https://www.youtube.com/watch?v={video_id}", start_time=start, autoplay=autoplay)
+    else:
+        st.video(f"https://www.youtube.com/watch?v={video_id}")
+
+def set_seek(seconds: int):
+    st.session_state.seek_to = seconds
+
+def render_chapter_buttons(chapters):
+    st.subheader("📚 Rozdziały")
+
+    for i, ch in enumerate(chapters):
+        seconds = summary.timestamp_to_seconds(ch["start"])
+        st.button(
+            f"▶ {ch['title']} ({ch['start']})",
+            key=f"chapter_{i}",
+            on_click=set_seek,
+            args=(seconds,),
+        )
+        # if st.button(
+        #     f"▶ {ch['title']} ({ch['start']})",
+        #     key=f"chapter_{i}_{seconds}",
+        # ):
+        #     st.session_state.seek_to = seconds
+
 def summarize_text(text, context, language=LANGUAGE):
     openai_client = get_openai_client()
-    prompt = f"Summarize the following text in a concise manner:\n\n{text}"
+    prompt = f""""
+    \n Transciption:{text}
+        Transcription context: {context}
+    """
     stream = openai_client.chat.completions.create(
         model=MODEL,
         messages=[
               {"role": "system", "content": f"""
-               Your task is to create text summary. 
+               Your task is to create a precise, concise, and accurate summary. 
                Input is transcription of a video with timestamps. 
-               Output should contain general summary and summary of each section (if applies). 
+               Output format:
+                1. TL;DR (3–5 points)
+                - The main points/conclusions of the film.
+
+                2. Film Structure (Chapters)
+                - Divide the content into logical sections.
+                - Use the following chapter header format for each chapter:
+                        #### N. Chapter Title (MM:SS–MM:SS)
+                        - Add bullet points describing this chapter
+                - Chapter numbers N must be sequential (1, 2, 3…)
+                - Timestamps must always be in the format MM:SS (minutes:seconds)
+                - Other sections (TL;DR, Key Terms, Conclusions) can have standard Markdown headers (###, ### etc.)
+
+                3. Key Terms and Ideas
+                - A list of terms with a brief explanation
+                - Only terms that actually appear in the material
+
+                4. Author's Conclusions
+                - What is the author's main point or message?
+
+                5. Limitations/Claims
+                - Highlight any uncertainties, simplifications, or things left unsaid in the film.
+
+                Answer Format:
+                - Markdown
+                - Clear headings
+                - Bullet points where possible
+                - No introductions or meta summaries
+               Rules:
+                - Rely solely on the provided material.
+                - Do not add external knowledge.
+                - If something cannot be clearly concluded, state it.
+                - Maintain a neutral, analytical tone. 
                Response language should be {language}.
-               Recording context is: {context}
                """},
             {"role": "user", "content": prompt}
         ],
@@ -56,6 +119,10 @@ if not st.session_state.get("openai_api_key"):
 
 if not st.session_state.get("openai_api_key"):
     st.stop()
+
+def request_generation():
+    st.session_state["generate_requested"] = True
+
 
 
 ### MAIN
@@ -94,15 +161,21 @@ if "full_summary" not in st.session_state:
 if "yt_full_summary" not in st.session_state:
     st.session_state["yt_full_summary"] = None
 
+if "seek_to" not in st.session_state:
+    st.session_state.seek_to = 0
+
+if "generate_requested" not in st.session_state:
+    st.session_state["generate_requested"] = False
+
 st.set_page_config(layout="wide")
 
 left_col, center_col, right_col = st.columns([1, 4, 1])
 
 with center_col:
     st.title("VIDEO/AUDIO SUMMARY")
-    tab0, tab1 = st.tabs(["Upload file", "Parse YouTube video"])
+    upload_tab, youtube_tab = st.tabs(["Upload file", "Parse YouTube video"])
     ### File upload option
-    with tab0: 
+    with upload_tab: 
         uploaded_file = st.file_uploader("Send a file for transcription", type=["mp3", "mp4", "wav", "mov", "ogg"], key="video_file")
         video_col, summary_col = st.columns(2, gap="small")
         with video_col:
@@ -187,23 +260,58 @@ with center_col:
                 info_transcribe_placeholder.success("Transcription completed.")
 
     ### Youtube link option
-    with tab1:
+    with youtube_tab:
         url = st.text_input("Input your link here:")
         youtube_id = youtube_utils.get_youtube_id(url)
+        if youtube_id:
+            if not youtube_utils.video_exists_http(youtube_id):
+                st.error("Video not found or private.")
+        # else:
+        #     st.warning("Invalid YouTube URL.")
         yt_video_col, yt_summary_col = st.columns(2, gap="small")
-        if url:
-            st.session_state["yt_transcript"]=""
+
+        if youtube_id and youtube_id != st.session_state["youtube_id"]: #new url provided
+            st.session_state["youtube_id"]=youtube_id
+            st.session_state["generate_requested"] = False
             with yt_video_col:
-                if youtube_id:
-                    youtube_utils.display_youtube_player(url)
-                    st.session_state["yt_transcript"]= youtube_utils.fetch_youtube_captions(st.session_state["youtube_id"], language="eng")
-                else:
-                    st.error("Provided link is not a YouTube url")
-            with yt_summary_col:
-                if st.session_state["yt_transcript"]:
-                    if st.button("Generate summary", key = "youtube_btn"):
-                        placeholder = st.empty()
+                render_player(youtube_id, False)
+                st.button("Generate summary", on_click=request_generation)
+
+        else: 
+            if st.session_state["generate_requested"]:
+                with yt_summary_col:
+                    with st.spinner("In progress..."):
+                        st.session_state["yt_transcript"]= youtube_utils.fetch_youtube_captions(st.session_state["youtube_id"], language="eng")
                         st.session_state["yt_full_summary"] = ""
+                        with st.container(height=700):
+                            placeholder = st.empty()
                         for token in summarize_text(st.session_state["yt_transcript"], youtube_utils.fetch_youtube_metadata(url)):
                             st.session_state["yt_full_summary"] += token
                             placeholder.markdown(st.session_state["yt_full_summary"])
+                    with st.spinner("Generating summary..."):
+                        chapters = summary.extract_chapters(st.session_state["yt_full_summary"])
+                        # render_player(st.session_state["youtube_id"])
+                        st.session_state["generate_requested"] = False
+                with yt_video_col:
+                    render_player(youtube_id, True)
+                    if chapters:
+                        with st.container(height=340):
+                            render_chapter_buttons(chapters)
+
+            else:
+                with yt_video_col:
+                        if youtube_id:
+                            render_player(youtube_id, True)
+                            # youtube_utils.display_youtube_player(url)
+                            if st.session_state["yt_full_summary"]:
+                                chapters = summary.extract_chapters(st.session_state["yt_full_summary"])
+                                with st.container(height=340):
+                                    render_chapter_buttons(chapters)
+                with yt_summary_col:
+                    if st.session_state["yt_full_summary"]:
+                        video_id = st.session_state["youtube_id"]
+                        # render_player(video_id)
+                        with st.container(height=700):
+                            st.markdown(st.session_state["yt_full_summary"])
+                        # clean_md = summary.CHAPTER_RE.sub("", st.session_state["yt_full_summary"])
+                        # st.markdown(clean_md)

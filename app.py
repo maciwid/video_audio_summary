@@ -78,7 +78,7 @@ def summarize_text(text, context, language=LANGUAGE):
                 - The main points/conclusions of the film.
 
                 2. Film Structure (Chapters)
-                - Divide the content into logical sections.
+                - If chapters are provided in the video context, use them. If not, create your own logical division into chapters based on the content.
                 - Use the following chapter header format for each chapter:
                         #### N. Chapter Title (MM:SS–MM:SS)
                         - Add bullet points describing this chapter
@@ -118,6 +118,11 @@ def summarize_text(text, context, language=LANGUAGE):
         if delta.content is not None:
             yield delta.content
 
+def request_generation():
+    st.session_state["generate_requested"] = True
+
+def request_yt_transcription():
+    st.session_state["yt_transcription_requested"] = True
 
 # OpenAI API key protection
 if not st.session_state.get("openai_api_key"):
@@ -133,11 +138,6 @@ if not st.session_state.get("openai_api_key"):
 
 if not st.session_state.get("openai_api_key"):
     st.stop()
-
-def request_generation():
-    st.session_state["generate_requested"] = True
-
-
 
 ### MAIN
 
@@ -160,23 +160,20 @@ if "video_file_path" not in st.session_state:
 if "transcript" not in st.session_state:
     st.session_state["transcript"] = None
 
-if "yt_transcript" not in st.session_state:
-    st.session_state["yt_transcript"] = None
-
-if "editable_text" not in st.session_state:
-    st.session_state["edtitable_text"] = None
-
-if "youtube_id" not in st.session_state:
-    st.session_state["youtube_id"] = None
-
-if "context" not in st.session_state:
-    st.session_state["context"] = ""
-
 if "full_summary" not in st.session_state:
     st.session_state["full_summary"] = None
 
 if "chapters" not in st.session_state:
     st.session_state["chapters"] = None
+
+if "context" not in st.session_state:
+    st.session_state["context"] = ""
+
+if "yt_transcript" not in st.session_state:
+    st.session_state["yt_transcript"] = None
+
+if "youtube_id" not in st.session_state:
+    st.session_state["youtube_id"] = None
 
 if "yt_full_summary" not in st.session_state:
     st.session_state["yt_full_summary"] = None
@@ -186,6 +183,13 @@ if "seek_to" not in st.session_state:
 
 if "generate_requested" not in st.session_state:
     st.session_state["generate_requested"] = False
+
+if "yt_transcription_requested" not in st.session_state:
+    st.session_state["yt_transcription_requested"] = False
+
+if "yt_chapters" not in st.session_state:
+    st.session_state["yt_chapters"] = None
+
 
 st.set_page_config(layout="wide")
 
@@ -198,49 +202,70 @@ with center_col:
     with youtube_tab:
         url = st.text_input("Input your link here:")
         youtube_id = youtube_utils.get_youtube_id(url)
+        video_exists = youtube_utils.video_exists_http(youtube_id)
         if youtube_id:
-            if not youtube_utils.video_exists_http(youtube_id):
+            if not video_exists:
                 st.error("Video not found or private.")
-        # else:
-        #     st.warning("Invalid YouTube URL.")
         yt_video_col, yt_summary_col = st.columns(2, gap="small")
 
-        if youtube_id and youtube_id != st.session_state["youtube_id"]: #new url provided
+        if (youtube_id and youtube_id != st.session_state["youtube_id"]): #new url provided
             st.session_state["youtube_id"]=youtube_id
+            st.session_state["yt_full_summary"] = None
             st.session_state["generate_requested"] = False
             with yt_video_col:
-                render_youtube_player(youtube_id, False)
-                st.button("Generate summary", on_click=request_generation)
+                if video_exists:
+                    render_youtube_player(youtube_id, False)
+                    st.button("Generate summary", on_click=request_generation)
 
-        else: 
+        else: #url didn't change
             if st.session_state["generate_requested"]:
-                with yt_summary_col:
-                    with st.spinner("In progress..."):
-                        st.session_state["yt_transcript"]= youtube_utils.fetch_youtube_captions(st.session_state["youtube_id"], language="eng")
-                        st.session_state["yt_full_summary"] = ""
-                        with st.container(height=700):
-                            placeholder = st.empty()
-                        for token in summarize_text(st.session_state["yt_transcript"], youtube_utils.fetch_youtube_metadata(url)):
-                            st.session_state["yt_full_summary"] += token
-                            placeholder.markdown(st.session_state["yt_full_summary"])
-                    with st.spinner("Generating summary..."):
-                        chapters = summary.extract_chapters(st.session_state["yt_full_summary"])
-                        # render_player(st.session_state["youtube_id"])
-                        st.session_state["generate_requested"] = False
                 with yt_video_col:
                     render_youtube_player(youtube_id, True)
-                    if chapters:
+                    if st.session_state["yt_chapters"]:
                         with st.container(height=340):
-                            render_chapter_buttons(chapters)
+                            render_chapter_buttons(st.session_state["yt_chapters"])
+                with yt_summary_col:
+                    with st.container(height=700):
+                        with st.spinner("In progress..."):
+                            placeholder = st.empty()
+                            st.session_state["yt_transcript"] = youtube_utils.fetch_youtube_captions(st.session_state["youtube_id"], language="eng")
+                            if st.session_state["yt_transcript"] is None and  not st.session_state["yt_transcription_requested"]:
+                                st.error("No captions found for this video.")
+                                st.info("As for now the application doesn't support direct audio transcription from Youtube. However, you can upload the video file in the 'Upload file' tab if you have it.")
+                                # st.info("You can try to transcribe audio directly from video, but it will generate additional costs. Do you want to do that?")
+                                # st.button("Transcribe audio from video", on_click=request_yt_transcription)
+                            elif st.session_state["yt_transcription_requested"]:
+                                with st.spinner("Downloading audio and creating transcription... (this may take a while depending on the length of the video)"):
+                                    audio_bytes = youtube_utils.download_youtube_audio(url)
+                                    try:
+                                        st.session_state["yt_transcript"] = audio_utils.create_transcription(audio_bytes, get_openai_client())
+                                    except AuthenticationError:
+                                        st.error("Invalid API key. Please check your OpenAI API key and try again (refresh site).")
+                                        st.stop()
+                                    except Exception as e:
+                                        st.error(f"An error occurred: {str(e)}")
+                                        st.stop()
+                                    st.success("Transcription completed.")
+                            else:
+                                st.session_state["yt_full_summary"] = ""
+                                for token in summarize_text(st.session_state["yt_transcript"], youtube_utils.fetch_youtube_metadata(url)):
+                                    st.session_state["yt_full_summary"] += token
+                                    placeholder.markdown(st.session_state["yt_full_summary"])
+                                st.session_state["yt_chapters"] = summary.extract_chapters(st.session_state["yt_full_summary"])
+                                # render_player(st.session_state["youtube_id"])
+                                st.session_state["generate_requested"] = False
             else:
                 with yt_video_col:
                         if youtube_id:
                             render_youtube_player(youtube_id, True)
                             # youtube_utils.display_youtube_player(url)
+                            if not st.session_state["yt_full_summary"]:
+                                st.button("Generate summary", on_click=request_generation)
                             if st.session_state["yt_full_summary"]:
                                 chapters = summary.extract_chapters(st.session_state["yt_full_summary"])
                                 with st.container(height=340):
                                     render_chapter_buttons(chapters)
+
                 with yt_summary_col:
                     if st.session_state["yt_full_summary"]:
                         video_id = st.session_state["youtube_id"]

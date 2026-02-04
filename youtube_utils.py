@@ -9,12 +9,9 @@ from youtube_transcript_api._errors import (
     VideoUnavailable,
 )
 import requests
-
-def video_exists_http(video_id):
-    url = f"https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v={video_id}"
-    r = requests.get(url)
-    return r.status_code == 200
-
+import tempfile
+import io
+import shutil
 
 
 ydl_opts = {
@@ -22,6 +19,12 @@ ydl_opts = {
     "outtmpl": "audio.%(ext)s",
     "quiet": True,
 }
+
+
+def video_exists_http(video_id):
+    url = f"https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v={video_id}"
+    r = requests.get(url)
+    return r.status_code == 200
 
 
 def get_youtube_id(url:str) -> str | None:
@@ -73,16 +76,41 @@ def fetch_youtube_captions(
     Fetch YouTube captions using youtube-transcript-api >=1.0.0
     """
     ytt_api = YouTubeTranscriptApi()
-    feteched_transcript =  ytt_api.fetch(youtube_id).to_raw_data()
-    return feteched_transcript
+    try:
+        fetched_transcript = ytt_api.fetch(youtube_id).to_raw_data()
+    except NoTranscriptFound:
+        fetched_transcript = None
+    return fetched_transcript
 
  
 
-def download_youtube_audio(url: str):
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        ydl.download([url])
-
 import yt_dlp
+import io
+
+def download_youtube_audio(url: str) -> bytes:
+    """
+    Pobiera audio z YouTube do bytes.
+    - Nie używa postprocessingu, żeby uniknąć błędów FFmpeg w pamięci.
+    - Zwraca oryginalny audio format (webm/m4a), gotowy do Whisper.
+    """
+    ydl_opts = {
+        "format": "bestaudio/best",
+        "quiet": True,
+        "noplaylist": True,
+        "postprocessors": [],  # brak konwersji → brak problemów z FFmpeg
+    }
+
+    with tempfile.NamedTemporaryFile(suffix=".audio") as tmp_file:
+        ydl_opts["outtmpl"] = tmp_file.name
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                ydl.download([url])
+        except yt_dlp.utils.DownloadError as e:
+            print(f"Download failed: {e}")
+            return None
+
+        tmp_file.seek(0)
+        return tmp_file.read()
 
 def fetch_youtube_metadata(url: str) -> dict:
     ydl_opts = {

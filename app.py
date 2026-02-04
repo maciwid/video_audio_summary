@@ -9,10 +9,10 @@ from io import BytesIO
 import youtube_utils 
 import audio_utils 
 import summary
+from translation import t
 
 
 MODEL = "gpt-4o"
-LANGUAGE = "Polish"
 
 env = dotenv_values(".env")
 
@@ -45,7 +45,7 @@ def set_seek(seconds: int):
     st.session_state.seek_to = seconds
 
 def render_chapter_buttons(chapters):
-    st.subheader("📚 Rozdziały")
+    st.subheader(t("chapters", lang))
 
     for i, ch in enumerate(chapters):
         seconds = summary.timestamp_to_seconds(ch["start"])
@@ -55,22 +55,20 @@ def render_chapter_buttons(chapters):
             on_click=set_seek,
             args=(seconds,),
         )
-        # if st.button(
-        #     f"▶ {ch['title']} ({ch['start']})",
-        #     key=f"chapter_{i}_{seconds}",
-        # ):
-        #     st.session_state.seek_to = seconds
 
-def summarize_text(text, context, language=LANGUAGE):
+def summarize_text(text, context, language):
+    
     openai_client = get_openai_client()
     prompt = f""""
     \n Transciption:{text}
         Transcription context: {context}
+        Response language: {language}
     """
     stream = openai_client.chat.completions.create(
         model=MODEL,
         messages=[
               {"role": "system", "content": f"""
+               Translate response to {language}.
                Your task is to create a precise, concise, and accurate summary. 
                Input is transcription of a video with timestamps. 
                Output format:
@@ -106,7 +104,6 @@ def summarize_text(text, context, language=LANGUAGE):
                 - Do not add external knowledge.
                 - If something cannot be clearly concluded, state it.
                 - Maintain a neutral, analytical tone. 
-               Response language should be {language}.
                """},
             {"role": "user", "content": prompt}
         ],
@@ -184,20 +181,29 @@ if "seek_to" not in st.session_state:
 if "generate_requested" not in st.session_state:
     st.session_state["generate_requested"] = False
 
-if "yt_transcription_requested" not in st.session_state:
-    st.session_state["yt_transcription_requested"] = False
-
 if "yt_chapters" not in st.session_state:
     st.session_state["yt_chapters"] = None
 
+if "lang" not in st.session_state:
+    st.session_state.lang = "english"
 
 st.set_page_config(layout="wide")
+
+with st.sidebar:
+    st.session_state.lang = st.selectbox(
+    "Language",
+    ["english", "polish"],
+    index=["english", "polish"].index(st.session_state.lang),
+    )
+    lang = st.session_state["lang"]
+    st.info(t("lang_info", lang))
+
 
 left_col, center_col, right_col = st.columns([1, 4, 1])
 
 with center_col:
     st.title("VIDEO/AUDIO SUMMARY")
-    youtube_tab, upload_tab = st.tabs(["Parse YouTube video", "Upload file"])
+    youtube_tab, upload_tab = st.tabs(["YouTube video", t("upload", lang)])
     ### Youtube link option
     with youtube_tab:
         url = st.text_input("Input your link here:")
@@ -205,7 +211,7 @@ with center_col:
         video_exists = youtube_utils.video_exists_http(youtube_id)
         if youtube_id:
             if not video_exists:
-                st.error("Video not found or private.")
+                st.error(t("video_error", lang))
         yt_video_col, yt_summary_col = st.columns(2, gap="small")
 
         if (youtube_id and youtube_id != st.session_state["youtube_id"]): #new url provided
@@ -215,52 +221,37 @@ with center_col:
             with yt_video_col:
                 if video_exists:
                     render_youtube_player(youtube_id, False)
-                    st.button("Generate summary", on_click=request_generation)
+                    st.button(t("generate", lang), on_click=request_generation)
 
         else: #url didn't change
             if st.session_state["generate_requested"]:
                 with yt_video_col:
                     render_youtube_player(youtube_id, True)
-                    if st.session_state["yt_chapters"]:
+                    if st.session_state["yt_full_summary"] and st.session_state["yt_chapters"]:
                         with st.container(height=340):
                             render_chapter_buttons(st.session_state["yt_chapters"])
                 with yt_summary_col:
                     with st.container(height=700):
-                        with st.spinner("In progress..."):
+                        with st.spinner(t("loading", lang)):
                             placeholder = st.empty()
                             st.session_state["yt_transcript"] = youtube_utils.fetch_youtube_captions(st.session_state["youtube_id"], language="eng")
                             if st.session_state["yt_transcript"] is None and  not st.session_state["yt_transcription_requested"]:
-                                st.error("No captions found for this video.")
-                                st.info("As for now the application doesn't support direct audio transcription from Youtube. However, you can upload the video file in the 'Upload file' tab if you have it.")
-                                # st.info("You can try to transcribe audio directly from video, but it will generate additional costs. Do you want to do that?")
-                                # st.button("Transcribe audio from video", on_click=request_yt_transcription)
-                            elif st.session_state["yt_transcription_requested"]:
-                                with st.spinner("Downloading audio and creating transcription... (this may take a while depending on the length of the video)"):
-                                    audio_bytes = youtube_utils.download_youtube_audio(url)
-                                    try:
-                                        st.session_state["yt_transcript"] = audio_utils.create_transcription(audio_bytes, get_openai_client())
-                                    except AuthenticationError:
-                                        st.error("Invalid API key. Please check your OpenAI API key and try again (refresh site).")
-                                        st.stop()
-                                    except Exception as e:
-                                        st.error(f"An error occurred: {str(e)}")
-                                        st.stop()
-                                    st.success("Transcription completed.")
+                                st.error(t("no_captions", lang))
+                                st.info(t("no_transcription_info", lang))
                             else:
                                 st.session_state["yt_full_summary"] = ""
-                                for token in summarize_text(st.session_state["yt_transcript"], youtube_utils.fetch_youtube_metadata(url)):
+                                for token in summarize_text(st.session_state["yt_transcript"], youtube_utils.fetch_youtube_metadata(url), st.session_state["lang"]):
                                     st.session_state["yt_full_summary"] += token
                                     placeholder.markdown(st.session_state["yt_full_summary"])
                                 st.session_state["yt_chapters"] = summary.extract_chapters(st.session_state["yt_full_summary"])
-                                # render_player(st.session_state["youtube_id"])
                                 st.session_state["generate_requested"] = False
+                                st.rerun()
             else:
                 with yt_video_col:
                         if youtube_id:
                             render_youtube_player(youtube_id, True)
-                            # youtube_utils.display_youtube_player(url)
                             if not st.session_state["yt_full_summary"]:
-                                st.button("Generate summary", on_click=request_generation)
+                                st.button(t("generate"), on_click=request_generation)
                             if st.session_state["yt_full_summary"]:
                                 chapters = summary.extract_chapters(st.session_state["yt_full_summary"])
                                 with st.container(height=340):
@@ -269,16 +260,15 @@ with center_col:
                 with yt_summary_col:
                     if st.session_state["yt_full_summary"]:
                         video_id = st.session_state["youtube_id"]
-                        # render_player(video_id)
                         with st.container(height=700):
                             st.markdown(st.session_state["yt_full_summary"])
-                        # clean_md = summary.CHAPTER_RE.sub("", st.session_state["yt_full_summary"])
-                        # st.markdown(clean_md)
+                            st.button(t("regenerate", lang), on_click=request_generation)
+
 
 
     ### File upload option
     with upload_tab: 
-        uploaded_file = st.file_uploader("Send a file for transcription", type=["mp3", "mp4", "wav", "mov", "ogg"], key="video_file")
+        uploaded_file = st.file_uploader(t("send_file", lang), type=["mp3", "mp4", "wav", "mov", "ogg"], key="video_file")
         video_col, summary_col = st.columns(2, gap="small")
         with video_col:
             if uploaded_file:
@@ -337,7 +327,7 @@ with center_col:
 
                 info_transcribe_placeholder = st.empty()
                 if st.session_state["transcript"] is None: 
-                    st.session_state["context"] = st.text_area("You can add additional context for the summary here")
+                    st.session_state["context"] = st.text_area(t("context", lang), height=100)
                     if st.button("Generate summary", key = "uploaded_file_btn" ):
                         info_transcribe_placeholder.info("Transcribing audio... (this may take a while depending on the length)")  
                         try:
@@ -359,12 +349,10 @@ with center_col:
             if st.session_state["transcript"]:
                 if not st.session_state["full_summary"]:
                     info_transcribe_placeholder.info("Transcription completed. Generating summary...")  
-                    # transcription_text = parse_transcript(st.session_state["transcript"]) 
-                    # if st.button("Generate summary", key = "uploaded_file_btn" ):
                     st.session_state["full_summary"] = ""
                     with st.container(height=700):
                         placeholder = st.empty()
-                        for token in summarize_text(st.session_state["transcript"], st.session_state["context"]):
+                        for token in summarize_text(st.session_state["transcript"], st.session_state["context"], st.session_state["lang"]):
                             st.session_state["full_summary"] += token
                             placeholder.markdown(st.session_state["full_summary"])
                     st.session_state["chapters"] = summary.extract_chapters(st.session_state["full_summary"])

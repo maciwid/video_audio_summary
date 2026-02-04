@@ -9,6 +9,7 @@ from io import BytesIO
 import youtube_utils 
 import audio_utils 
 import summary
+from translation import t
 
 
 MODEL = "gpt-4o"
@@ -193,11 +194,14 @@ if "yt_chapters" not in st.session_state:
 
 st.set_page_config(layout="wide")
 
+with st.sidebar:
+    lang = st.selectbox("Language", ["en", "pl"], index=0)
+
 left_col, center_col, right_col = st.columns([1, 4, 1])
 
 with center_col:
     st.title("VIDEO/AUDIO SUMMARY")
-    youtube_tab, upload_tab = st.tabs(["Parse YouTube video", "Upload file"])
+    youtube_tab, upload_tab = st.tabs(["YouTube video", t("upload", lang)])
     ### Youtube link option
     with youtube_tab:
         url = st.text_input("Input your link here:")
@@ -212,6 +216,7 @@ with center_col:
             st.session_state["youtube_id"]=youtube_id
             st.session_state["yt_full_summary"] = None
             st.session_state["generate_requested"] = False
+            st.session_state["chapters"] = None
             with yt_video_col:
                 if video_exists:
                     render_youtube_player(youtube_id, False)
@@ -220,7 +225,7 @@ with center_col:
         else: #url didn't change
             if st.session_state["generate_requested"]:
                 with yt_video_col:
-                    render_youtube_player(youtube_id, True)
+                    render_youtube_player(youtube_id, False)
                     if st.session_state["yt_chapters"]:
                         with st.container(height=340):
                             render_chapter_buttons(st.session_state["yt_chapters"])
@@ -254,6 +259,7 @@ with center_col:
                                 st.session_state["yt_chapters"] = summary.extract_chapters(st.session_state["yt_full_summary"])
                                 # render_player(st.session_state["youtube_id"])
                                 st.session_state["generate_requested"] = False
+                                st.rerun()
             else:
                 with yt_video_col:
                         if youtube_id:
@@ -272,6 +278,7 @@ with center_col:
                         # render_player(video_id)
                         with st.container(height=700):
                             st.markdown(st.session_state["yt_full_summary"])
+                            st.button("Regenerate summary?", on_click=request_generation)
                         # clean_md = summary.CHAPTER_RE.sub("", st.session_state["yt_full_summary"])
                         # st.markdown(clean_md)
 

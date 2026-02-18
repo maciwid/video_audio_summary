@@ -12,7 +12,14 @@ TEXTS = {
         "send_file": "Send a file for transcription",
         "context": "You can add additional context for the summary here",
         "lang_info": "Summary will be generated in the language set while pressing the 'Generate Summary' button. You can always regenerate it in another language.",
-        "loading": "Generoating summary, please wait..."
+        "loading": "Generating summary, please wait...",
+        "input_label": "Input your link here:",
+        "audio_upload_success": "Audio file uploaded successfully.",
+        "invalid_api_key": "Invalid API key. Please check your OpenAI API key and try again (refresh site).",
+        "transcribing_info": "Transcribing audio... (this may take a while depending on the length)",
+        "summarizing_info": "Transcription completed. Generating summary...",
+        "summary_completed": "Summary generation completed.",
+        "transcript_error": "Unfortunately, your IP address has been temporarily blocked by YouTube for making too many requests. Please try again later or use a different network.",
     },
     "polish": {
         "title": "Witamy",
@@ -26,7 +33,14 @@ TEXTS = {
         "send_file": "Prześlij plik do transkrypcji",
         "context": "Możesz dodać dodatkowy kontekst do podsumowania tutaj",
         "lang_info": "Podsumowanie zostanie wygenerowane w języku ustawionym podczas naciskania przycisku 'Wygeneruj podsumowanie'. Zawsze możesz wygenerować je ponownie w innym języku.",
-        "loading": "Generowanie podsumowania, proszę czekać..."
+        "loading": "Generowanie podsumowania, proszę czekać...",
+        "input_label": "Wprowadź swój link:",
+        "audio_upload_success": "Plik audio został pomyślnie przesłany.",
+        "invalid_api_key": "Nieprawidłowy klucz API. Sprawdź swój klucz API OpenAI i spróbuj ponownie (odśwież stronę).",
+        "transcribing_info": "Transkrypcja audio... (to może potrwać w zależności od długości)",
+        "summarizing_info": "Transkrypcja zakończona. Generowanie podsumowania...",
+        "summary_completed": "Generowanie podsumowania zakończone.",
+        "transcript_error": "Niestety, Twój adres IP został tymczasowo zablokowany przez YouTube za zbyt wiele żądań. Spróbuj ponownie później lub użyj innej sieci.",
     },
 }
 

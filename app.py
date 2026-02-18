@@ -243,7 +243,7 @@ with center_col:
                                 st.session_state["yt_transcript"] = youtube_utils.fetch_youtube_captions(st.session_state["youtube_id"], language="eng")
                             except youtube_utils.RequestBlocked:
                                  st.session_state["yt_transcript"] = None
-                                 st.error(t("video_error", lang))
+                                 st.error(t("transcript_error", lang))
                                  st.stop()
                             
                             if st.session_state["yt_transcript"] is None and  not st.session_state["yt_transcription_requested"]:

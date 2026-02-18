@@ -16,6 +16,9 @@ MODEL = "gpt-4o"
 
 env = dotenv_values(".env")
 
+
+
+
 def get_openai_client():
     return OpenAI(api_key=st.session_state["openai_api_key"])
 
@@ -82,6 +85,7 @@ def summarize_text(text, context, language):
                         - Add bullet points describing this chapter
                 - Chapter numbers N must be sequential (1, 2, 3…)
                 - Timestamps must always be in the format MM:SS (minutes:seconds)
+                - chapter timestamps cannot exceed the video length
                 - Other sections (TL;DR, Key Terms, Conclusions) can have standard Markdown headers (###, ### etc.)
 
                 3. Key Terms and Ideas
@@ -206,7 +210,8 @@ with center_col:
     youtube_tab, upload_tab = st.tabs(["YouTube video", t("upload", lang)])
     ### Youtube link option
     with youtube_tab:
-        url = st.text_input("Input your link here:")
+        url = st.text_input(t("input_label", lang), value=st.session_state.get('url', ''), key="youtube_url_input")
+        st.session_state["url"] = url
         youtube_id = youtube_utils.get_youtube_id(url)
         video_exists = youtube_utils.video_exists_http(youtube_id)
         if youtube_id:
@@ -234,7 +239,12 @@ with center_col:
                     with st.container(height=700):
                         with st.spinner(t("loading", lang)):
                             placeholder = st.empty()
-                            st.session_state["yt_transcript"] = youtube_utils.fetch_youtube_captions(st.session_state["youtube_id"], language="eng")
+                            try:
+                                st.session_state["yt_transcript"] = youtube_utils.fetch_youtube_captions(st.session_state["youtube_id"], language="eng")
+                            except youtube_utils._errors.RequestBlocked:
+                                 st.session_state["yt_transcript"] = None
+                                 st.error(t("video_error", lang))
+                            
                             if st.session_state["yt_transcript"] is None and  not st.session_state["yt_transcription_requested"]:
                                 st.error(t("no_captions", lang))
                                 st.info(t("no_transcription_info", lang))
@@ -248,10 +258,10 @@ with center_col:
                                 st.rerun()
             else:
                 with yt_video_col:
-                        if youtube_id:
+                        if st.session_state["youtube_id"]:
                             render_youtube_player(youtube_id, True)
                             if not st.session_state["yt_full_summary"]:
-                                st.button(t("generate"), on_click=request_generation)
+                                st.button(t("generate", lang), on_click=request_generation)
                             if st.session_state["yt_full_summary"]:
                                 chapters = summary.extract_chapters(st.session_state["yt_full_summary"])
                                 with st.container(height=340):
@@ -299,22 +309,19 @@ with center_col:
                             temp_video_path = temp_video_file.name
                             st.session_state["video_file_path"] = temp_video_path
                         info_audio_placeholder = st.empty()
-                        # info_audio_placeholder.info("Extracting audio, please wait...")
                         # Convert video to audio
                         audio = AudioSegment.from_file(temp_video_path, format="mp4")
                         # Save audio to a temporary file
                         with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as temp_audio_file:
                             audio.export(temp_audio_file.name, format="mp3")
                             st.session_state["audio_file_path"] = temp_audio_file.name  
-                            # info_audio_placeholder.success("Audio was extracted.")
-                            # st.audio(st.session_state["audio_file_path"], format="audio/mp3")
                     
                     else:  # if the file is audio
                         st.audio(file_bytes, format=f"audio/{file_extension}")
                         with tempfile.NamedTemporaryFile(delete=False, suffix=f".{file_extension}") as temp_audio_file:
                             temp_audio_file.write(file_bytes)
                             st.session_state["audio_file_path"] = temp_audio_file.name
-                        st.success("Audio file uploaded successfully.")
+                        st.success(t("audio_upload_success", lang))
 
                 # Uploaded file didn't change
                 else:
@@ -323,17 +330,16 @@ with center_col:
                     else:
                         file_path = st.session_state["audio_file_path"]      
                     render_local_player(file_path, st.session_state["is_video"])
-                    # st.video(st.session_state["file_bytes"], format="video/mp4")
 
                 info_transcribe_placeholder = st.empty()
                 if st.session_state["transcript"] is None: 
                     st.session_state["context"] = st.text_area(t("context", lang), height=100)
-                    if st.button("Generate summary", key = "uploaded_file_btn" ):
-                        info_transcribe_placeholder.info("Transcribing audio... (this may take a while depending on the length)")  
+                    if st.button(t("generate", lang), key = "uploaded_file_btn" ):
+                        info_transcribe_placeholder.info(t("transcribing_info", lang))  
                         try:
                             st.session_state["transcript"] = audio_utils.create_transcription(open(st.session_state["audio_file_path"], "rb").read(), get_openai_client()) 
                         except AuthenticationError:
-                            info_transcribe_placeholder.error("Invalid API key. Please check your OpenAI API key and try again (refresh site).")
+                            info_transcribe_placeholder.error(t("invalid_api_key", lang))
                             st.stop()
                         except Exception as e:
                             info_transcribe_placeholder.error(f"An error occurred: {str(e)}")
@@ -348,7 +354,7 @@ with center_col:
         with summary_col:
             if st.session_state["transcript"]:
                 if not st.session_state["full_summary"]:
-                    info_transcribe_placeholder.info("Transcription completed. Generating summary...")  
+                    info_transcribe_placeholder.info(t("summarizing_info", lang))  
                     st.session_state["full_summary"] = ""
                     with st.container(height=700):
                         placeholder = st.empty()
@@ -356,7 +362,7 @@ with center_col:
                             st.session_state["full_summary"] += token
                             placeholder.markdown(st.session_state["full_summary"])
                     st.session_state["chapters"] = summary.extract_chapters(st.session_state["full_summary"])
-                    info_transcribe_placeholder.success("Transcription completed.")
+                    info_transcribe_placeholder.success(t("summary_completed", lang))
                     st.rerun()
                 else:
                     with st.container(height=700):

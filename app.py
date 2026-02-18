@@ -241,9 +241,10 @@ with center_col:
                             placeholder = st.empty()
                             try:
                                 st.session_state["yt_transcript"] = youtube_utils.fetch_youtube_captions(st.session_state["youtube_id"], language="eng")
-                            except youtube_utils._errors.RequestBlocked:
+                            except youtube_utils.RequestBlocked:
                                  st.session_state["yt_transcript"] = None
                                  st.error(t("video_error", lang))
+                                 st.stop()
                             
                             if st.session_state["yt_transcript"] is None and  not st.session_state["yt_transcription_requested"]:
                                 st.error(t("no_captions", lang))

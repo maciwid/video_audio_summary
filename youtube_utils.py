@@ -7,11 +7,10 @@ from youtube_transcript_api._errors import (
     TranscriptsDisabled,
     NoTranscriptFound,
     VideoUnavailable,
+    RequestBlocked
 )
 import requests
 import tempfile
-import io
-import shutil
 
 
 ydl_opts = {
@@ -83,9 +82,6 @@ def fetch_youtube_captions(
     return fetched_transcript
 
  
-
-import yt_dlp
-import io
 
 def download_youtube_audio(url: str) -> bytes:
     """
